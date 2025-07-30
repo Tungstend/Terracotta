@@ -3,6 +3,7 @@ package net.burningtnt.terracotta.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
@@ -27,6 +28,12 @@ class ConnectionService : VpnService() {
             .addDnsServer("8.8.8.8") // 可选
             .addDnsServer("1.1.1.1")
             .addRoute("0.0.0.0", 0)
+
+        try {
+            builder.addDisallowedApplication("net.burningtnt.terracotta")
+        } catch (e: PackageManager.NameNotFoundException) {
+            e.printStackTrace()
+        }
 
         val vpnInterface = builder.establish() ?: throw Exception("VPN 创建失败")
         val tunFd = vpnInterface.fileDescriptor
