@@ -1,5 +1,7 @@
 package net.burningtnt.terracotta.core
 
+import android.os.ParcelFileDescriptor
+
 object NativeBridge {
 
     init {
@@ -12,6 +14,8 @@ object NativeBridge {
     external fun stopLanScan()
     external fun startFakeServer(motd: String, listenPort: Int)
     external fun stopFakeServer()
+    external fun setTunFd(instanceName: String, tunFd: ParcelFileDescriptor): Int
+    external fun retainNetworkInstance(names: Array<String>): Int
     external fun startEasyTierHost(name: String, key: String, port: Int, logDir: String): Int
     external fun startEasyTierGuest(name: String, key: String, localPort: Int, remotePort: Int, logDir: String): Int
 

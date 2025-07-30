@@ -3,16 +3,34 @@ package net.burningtnt.terracotta.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.net.VpnService
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import net.burningtnt.terracotta.R
 import net.burningtnt.terracotta.core.NativeBridge
 
-class ConnectionService : Service() {
+class ConnectionService : VpnService() {
 
-    private var lanBroadcastListener: LanBroadcastListener? = null
+    private var vpnPFD: ParcelFileDescriptor? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        startForeground(NOTIF_ID, createNotification("guest", 55678, null)) // 或任意 placeholder
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val builder = Builder()
+            .setSession("EasyTier VPN")
+            .setMtu(1500)
+            .addAddress("10.144.144.4", 24)
+            .addDnsServer("8.8.8.8") // 可选
+            .addDnsServer("1.1.1.1")
+            .addRoute("0.0.0.0", 0)
+
+        val vpnInterface = builder.establish() ?: throw Exception("VPN 创建失败")
+        val tunFd = vpnInterface.fileDescriptor
+
         val role = intent?.getStringExtra("role") ?: return START_NOT_STICKY
         val networkName = intent.getStringExtra("network_name") ?: return START_NOT_STICKY
         val secret = intent.getStringExtra("secret") ?: "secret"
@@ -30,22 +48,21 @@ class ConnectionService : Service() {
                     i = NativeBridge.startEasyTierHost(networkName, secret, port, logDir)
                 } else {
                     i = NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, logDir)
-
-                    // 启动 LAN 广播监听器 👇
-                    lanBroadcastListener = LanBroadcastListener(this)
-                    lanBroadcastListener?.startListening { data ->
-                        //Log.d("LanBroadcast", "📡 收到广播: $data")
-
-                        val portRegex = Regex("AD(\\d+)")
-                        val match = portRegex.find(data)
-                        val lanPort = match?.groups?.get(1)?.value?.toIntOrNull()
-
-                        if (lanPort != null) {
-                            Log.i("LanBroadcast", "✅ Minecraft 房主开放端口: $lanPort")
-                            // 可以在此触发 UI 通知或自动加入逻辑
-                        }
+                    val pfd = ParcelFileDescriptor.dup(tunFd)
+                    vpnPFD = pfd
+                    val result = NativeBridge.setTunFd("Terracotta-Guest", pfd)
+                    if (result != 0) {
+                        Log.e("EasyTier", "❌ setTunFd failed")
+                    } else {
+                        Log.i("EasyTier", "✅ setTunFd success")
                     }
-
+                    Thread {
+                        while (true) {
+                            val retainResult = NativeBridge.retainNetworkInstance(arrayOf("Terracotta-Guest"))
+                            Log.i("EasyTier", "retainNetworkInstance result = $retainResult")
+                            Thread.sleep(10000)
+                        }
+                    }.start()
                     NativeBridge.startFakeServer("陶瓦大厅", forwardPort)
                 }
                 Log.d("EasyTier code", "EasyTier start with code: $i")
@@ -61,8 +78,11 @@ class ConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        vpnPFD?.close()
+        vpnPFD = null
+        stopForeground(true)
+        NativeBridge.retainNetworkInstance(emptyArray())
         super.onDestroy()
-        lanBroadcastListener?.stopListening()
     }
 
     private fun createNotification(role: String, forwardPort: Int, inviteCode: String?): Notification {

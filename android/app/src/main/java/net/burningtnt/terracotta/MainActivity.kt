@@ -1,14 +1,26 @@
 package net.burningtnt.terracotta
 
+import android.app.Activity
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import net.burningtnt.terracotta.RoomManager.startGuestVpnService
 import net.burningtnt.terracotta.databinding.ActivityMainBinding
+import net.burningtnt.terracotta.service.pendingVpnGuestConfig
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+
+    private val guestVpnLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            pendingVpnGuestConfig?.let {
+                startGuestVpnService(this, it.networkName, it.secret, it.port, it.forwardPort)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +61,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.guest.setOnClickListener {
-            RoomManager.joinRoom(this, "DXETZ-3B14T-0NVZY-TWK39-FFU3M") { error ->
+            RoomManager.joinRoom(this, guestVpnLauncher, "DXETZ-3B14T-0NVZY-TWK39-FFU3M") { error ->
                 Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
             }
         }

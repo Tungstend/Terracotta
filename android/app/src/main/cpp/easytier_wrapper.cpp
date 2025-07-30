@@ -130,7 +130,7 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
     }
 
     std::ostringstream oss;
-    oss << "instance_name = \"guest-" << std::chrono::system_clock::now().time_since_epoch().count() << "\"\n\n";
+    oss << "instance_name = \"Terracotta-Guest\"" << "\n\n";
 
     oss << "[file_logger]\n";
     oss << "level = \"debug\"\n";
@@ -146,39 +146,36 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
 
     // 统一放入 [flags]
     oss << "[flags]\n";
-    oss << "no_tun = true\n";
+    //oss << "no_tun = true\n";
     oss << "compression = \"zstd\"\n";
     oss << "multi_thread = true\n";
     oss << "latency_first = true\n";
     oss << "enable_kcp_proxy = true\n\n";
 
     // 端口转发规则（IPv6）
-    oss << "[[port_forward]]\n";
-    oss << "proto = \"tcp\"\n";
-    oss << "bind_addr = \"[::]:" << local_port << "\"\n";
-    oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
+    //oss << "[[port_forward]]\n";
+    //oss << "proto = \"tcp\"\n";
+    //oss << "bind_addr = \"[::]:" << local_port << "\"\n";
+    //oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
 
-    if (!ipv6_only) {
-        oss << "[[port_forward]]\n";
-        oss << "proto = \"tcp\"\n";
-        oss << "bind_addr = \"0.0.0.0:" << local_port << "\"\n";
-        oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
-    }
+    //if (!ipv6_only) {
+    //    oss << "[[port_forward]]\n";
+    //    oss << "proto = \"tcp\"\n";
+    //    oss << "bind_addr = \"0.0.0.0:" << local_port << "\"\n";
+    //    oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
+    //}
 
     // 写 relay servers 为 [[peers]]
     const char* peers[] = {
             "tcp://public.easytier.top:11010",
             "tcp://ah.nkbpal.cn:11010",
-            "tcp://gz.minebg.top:11010",
             "tcp://turn.hb.629957.xyz:11010",
-            "tcp://turn.sc.629957.xyz:11010",
             "tcp://turn.js.629957.xyz:11012",
             "tcp://sh.993555.xyz:11010",
             "tcp://turn.bj.629957.xyz:11010",
             "tcp://et.sh.suhoan.cn:11010",
             "tcp://et-hk.clickor.click:11010",
             "tcp://et.01130328.xyz:11010",
-            "tcp://et.ie12vps.xyz:11010",
             "tcp://et.gbc.moe:11011"
     };
 

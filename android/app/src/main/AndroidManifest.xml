@@ -34,9 +34,10 @@
         <service
             android:name=".service.ConnectionService"
             android:enabled="true"
-            android:exported="false"
+            android:exported="true"
             android:foregroundServiceType="connectedDevice|dataSync"
             android:process=":terracotta"
+            android:permission="android.permission.BIND_VPN_SERVICE"
             android:stopWithTask="false" />
         <receiver android:name=".service.ConnectionControlReceiver"
             android:exported="false" />

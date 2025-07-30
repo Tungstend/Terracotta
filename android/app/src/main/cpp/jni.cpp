@@ -6,10 +6,12 @@
 #include <string>
 #include <memory>
 #include <random>
+#include <android/log.h>
 
 #include "invite_code.h"
 #include "lan_scanner.h"
 #include "fake_server.h"
+#include "easytier.h"
 
 extern "C"
 JNIEXPORT jstring JNICALL
@@ -116,6 +118,66 @@ Java_net_burningtnt_terracotta_core_NativeBridge_stopFakeServer(JNIEnv*, jobject
         server->stop();
         server.reset();
     }
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_net_burningtnt_terracotta_core_NativeBridge_setTunFd(
+        JNIEnv* env,
+        jclass clazz,
+        jstring instanceName_,
+        jobject tunParcelFileDescriptor
+) {
+    // 获取实例名字符串
+    const char* instanceName = env->GetStringUTFChars(instanceName_, nullptr);
+
+    // 获取 tun fd（从 ParcelFileDescriptor）
+    jclass pfdClass = env->GetObjectClass(tunParcelFileDescriptor);
+    jmethodID getFdMethod = env->GetMethodID(pfdClass, "getFd", "()I");
+    if (getFdMethod == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "EasyTier", "无法获取 getFd 方法");
+        env->ReleaseStringUTFChars(instanceName_, instanceName);
+        return -2;
+    }
+    jint fd = env->CallIntMethod(tunParcelFileDescriptor, getFdMethod);
+
+    // 调用 Rust 的 set_tun_fd
+    int result = set_tun_fd(instanceName, fd);
+    env->ReleaseStringUTFChars(instanceName_, instanceName);
+
+    if (result != 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "EasyTier", "set_tun_fd(%s, fd=%d) 失败", instanceName, fd);
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, "EasyTier", "✅ set_tun_fd 成功：%s (fd=%d)", instanceName, fd);
+    }
+
+    return result;
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_net_burningtnt_terracotta_core_NativeBridge_retainNetworkInstance(
+        JNIEnv* env,
+        jclass clazz,
+        jobjectArray names
+) {
+    jsize len = env->GetArrayLength(names);
+    std::vector<const char*> cStrings;
+    for (jsize i = 0; i < len; ++i) {
+        jstring jstr = (jstring) env->GetObjectArrayElement(names, i);
+        const char* cstr = env->GetStringUTFChars(jstr, nullptr);
+        cStrings.push_back(cstr);
+    }
+
+    int result = retain_network_instance(cStrings.data(), cStrings.size());
+
+    // 注意释放
+    for (jsize i = 0; i < len; ++i) {
+        jstring jstr = (jstring) env->GetObjectArrayElement(names, i);
+        env->ReleaseStringUTFChars(jstr, cStrings[i]);
+    }
+
+    return result;
 }
 
 extern int start_easytier_host(const std::string&, const std::string&, int, const std::string&);

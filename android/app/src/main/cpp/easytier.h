@@ -6,6 +6,7 @@
 #define TERRACOTTA_EASYTIER_H
 
 #include <stddef.h>
+#include <cstdint>
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,10 +17,12 @@ struct KeyValuePair {
     const char* value;
 };
 
+int32_t set_tun_fd(const char* inst_name, int fd);
 void get_error_msg(const char** out);
 void free_string(const char* s);
 int parse_config(const char* cfg_str);
 int run_network_instance(const char* cfg_str);
+int retain_network_instance(const char** names, size_t count);
 int collect_network_infos(KeyValuePair* infos, size_t max_length);
 
 #ifdef __cplusplus
