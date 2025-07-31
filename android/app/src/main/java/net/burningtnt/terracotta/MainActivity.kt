@@ -5,6 +5,7 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.AppCompatEditText
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import net.burningtnt.terracotta.RoomManager.startGuestVpnService
 import net.burningtnt.terracotta.RoomManager.startHostVpnService
@@ -66,12 +67,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         binding.host.setOnClickListener {
+            Toast.makeText(this, "正在检测端口，请启动游戏并对局域网开放", Toast.LENGTH_SHORT).show()
             RoomManager.startHosting(this, hostVpnLauncher) { code ->
-                Toast.makeText(this, code, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "房间已创建，请在通知中复制邀请码", Toast.LENGTH_LONG).show()
             }
         }
         binding.guest.setOnClickListener {
-            RoomManager.joinRoom(this, guestVpnLauncher, "F4FE3-92KJ7-TXA0S-YNZW2-SPZ4X") { error ->
+            RoomManager.joinRoom(this, guestVpnLauncher, binding.code.text.toString()) { error ->
                 Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
             }
         }
