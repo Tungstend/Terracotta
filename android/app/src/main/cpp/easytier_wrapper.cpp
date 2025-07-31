@@ -130,15 +130,24 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
     }
 
     std::ostringstream oss;
-    oss << "instance_name = \"Terracotta-Guest\"" << "\n\n";
+    oss << "instance_name = \"Terracotta-Guest\"" << "\n";
+    oss << "instance_id = \"4fd1f20f-9f74-48ab-9d7d-84db7c3ac4eb\"" << "\n";
+    oss << "ipv4 = \"10.144.144.2/24\"" << "\n";
+    oss << "dhcp = false" << "\n";
+    oss << "listeners = [" << "\n";
+    oss << "    \"tcp://0.0.0.0:11010\"," << "\n";
+    oss << "    \"udp://0.0.0.0:11010\"," << "\n";
+    oss << "    \"wg://0.0.0.0:11010\"," << "\n";
+    oss << "]" << "\n";
+    oss << "rpc_portal = \"0.0.0.0:0\"" << "\n\n";
 
-    oss << "[file_logger]\n";
-    oss << "level = \"debug\"\n";
-    oss << "file = \"guest.log\"\n";
-    oss << "dir = \"" << log_dir << "\"\n\n";
+    //oss << "[file_logger]\n";
+    //oss << "level = \"debug\"\n";
+    //oss << "file = \"guest.log\"\n";
+    //oss << "dir = \"" << log_dir << "\"\n\n";
 
-    oss << "[console_logger]\n";
-    oss << "level = \"debug\"\n\n";
+    //oss << "[console_logger]\n";
+    //oss << "level = \"debug\"\n\n";
 
     oss << "[network_identity]\n";
     oss << "network_name = \"" << network_name << "\"\n";
@@ -147,23 +156,23 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
     // 统一放入 [flags]
     oss << "[flags]\n";
     //oss << "no_tun = true\n";
-    oss << "compression = \"zstd\"\n";
-    oss << "multi_thread = true\n";
+    //oss << "compression = \"zstd\"\n";
+    //oss << "multi_thread = true\n";
     oss << "latency_first = true\n";
     oss << "enable_kcp_proxy = true\n\n";
 
     // 端口转发规则（IPv6）
-    //oss << "[[port_forward]]\n";
-    //oss << "proto = \"tcp\"\n";
-    //oss << "bind_addr = \"[::]:" << local_port << "\"\n";
-    //oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
+    oss << "[[port_forward]]\n";
+    oss << "proto = \"tcp\"\n";
+    oss << "bind_addr = \"[::]:" << local_port << "\"\n";
+    oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
 
-    //if (!ipv6_only) {
-    //    oss << "[[port_forward]]\n";
-    //    oss << "proto = \"tcp\"\n";
-    //    oss << "bind_addr = \"0.0.0.0:" << local_port << "\"\n";
-    //    oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
-    //}
+    if (!ipv6_only) {
+        oss << "[[port_forward]]\n";
+        oss << "proto = \"tcp\"\n";
+        oss << "bind_addr = \"0.0.0.0:" << local_port << "\"\n";
+        oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
+    }
 
     // 写 relay servers 为 [[peers]]
     const char* peers[] = {
@@ -185,7 +194,7 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
     }
 
     // 添加结尾标记以便排查配置截断问题
-    oss << "\n# === END OF CONFIG ===\n";
+    //oss << "\n# === END OF CONFIG ===\n";
 
     std::string toml_config = oss.str();
     std::istringstream iss(toml_config);

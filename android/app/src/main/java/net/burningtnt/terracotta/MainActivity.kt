@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.guest.setOnClickListener {
-            RoomManager.joinRoom(this, guestVpnLauncher, "DXETZ-3B14T-0NVZY-TWK39-FFU3M") { error ->
+            RoomManager.joinRoom(this, guestVpnLauncher, "F4FE3-92KJ7-TXA0S-YNZW2-SPZ4X") { error ->
                 Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
             }
         }

@@ -23,11 +23,10 @@ class ConnectionService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val builder = Builder()
             .setSession("EasyTier VPN")
-            .setMtu(1500)
-            .addAddress("10.144.144.4", 24)
-            .addDnsServer("8.8.8.8") // 可选
-            .addDnsServer("1.1.1.1")
-            .addRoute("0.0.0.0", 0)
+            .setMtu(1300)
+            .setBlocking(false)
+            .addAddress("10.144.144.2", 24)
+            .addRoute("10.144.144.0", 24)
 
         try {
             builder.addDisallowedApplication("net.burningtnt.terracotta")
@@ -55,6 +54,7 @@ class ConnectionService : VpnService() {
                     i = NativeBridge.startEasyTierHost(networkName, secret, port, logDir)
                 } else {
                     i = NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, logDir)
+                    Thread.sleep(5000)
                     val pfd = ParcelFileDescriptor.dup(tunFd)
                     vpnPFD = pfd
                     val result = NativeBridge.setTunFd("Terracotta-Guest", pfd)
