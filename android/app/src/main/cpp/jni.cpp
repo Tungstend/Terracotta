@@ -58,40 +58,40 @@ Java_net_burningtnt_terracotta_core_NativeBridge_parseInviteCode(
 
 static std::unique_ptr<LANScanner> scanner;
 static JavaVM* global_vm = nullptr;
-static jobject global_callback_obj = nullptr;
+static jobject global_callback = nullptr;
 
 extern "C"
 JNIEXPORT void JNICALL
 Java_net_burningtnt_terracotta_core_NativeBridge_startLanScan(
-        JNIEnv* env, jobject thiz, jstring ip, jobject callback) {
+        JNIEnv* env, jobject /* this */, jobject callback) {
     if (scanner) return;
 
-    const char* ip_cstr = env->GetStringUTFChars(ip, nullptr);
-    std::string ip_cpp(ip_cstr);
-    env->ReleaseStringUTFChars(ip, ip_cstr);
-
-    global_vm = nullptr;
     env->GetJavaVM(&global_vm);
-    global_callback_obj = env->NewGlobalRef(callback);
+    global_callback = env->NewGlobalRef(callback);
 
     scanner = std::make_unique<LANScanner>();
-    scanner->start(ip_cpp, [](int port) {
-        // 回调 Kotlin：callback.onPortFound(int)
+    scanner->start([](int port) {
         JNIEnv* env = nullptr;
         global_vm->AttachCurrentThread(&env, nullptr);
-        jclass cls = env->GetObjectClass(global_callback_obj);
-        jmethodID method = env->GetMethodID(cls, "onPortFound", "(I)V");
-        env->CallVoidMethod(global_callback_obj, method, port);
+        jclass cb_class = env->GetObjectClass(global_callback);
+        jmethodID onFound = env->GetMethodID(cb_class, "onPortFound", "(I)V");
+        env->CallVoidMethod(global_callback, onFound, port);
     });
 }
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_net_burningtnt_terracotta_core_NativeBridge_stopLanScan(
-        JNIEnv*, jobject) {
+Java_net_burningtnt_terracotta_core_NativeBridge_stopLanScan(JNIEnv*, jobject) {
     if (scanner) {
         scanner->stop();
         scanner.reset();
+    }
+
+    if (global_callback) {
+        JNIEnv* env;
+        global_vm->AttachCurrentThread(&env, nullptr);
+        env->DeleteGlobalRef(global_callback);
+        global_callback = nullptr;
     }
 }
 
@@ -180,17 +180,17 @@ Java_net_burningtnt_terracotta_core_NativeBridge_retainNetworkInstance(
     return result;
 }
 
-extern int start_easytier_host(const std::string&, const std::string&, int, const std::string&);
+extern int start_easytier_host(const std::string&, const std::string&, const std::string&);
 extern int start_easytier_guest(const std::string&, const std::string&, int, int, const std::string&);
 
 extern "C"
 JNIEXPORT jint JNICALL
 Java_net_burningtnt_terracotta_core_NativeBridge_startEasyTierHost(
-        JNIEnv* env, jobject, jstring name, jstring key, jint port, jstring logDir) {
+        JNIEnv* env, jobject, jstring name, jstring key, jstring logDir) {
     const char* cname = env->GetStringUTFChars(name, nullptr);
     const char* ckey = env->GetStringUTFChars(key, nullptr);
     const char* clog = env->GetStringUTFChars(logDir, nullptr);
-    int ret = start_easytier_host(cname, ckey, port, clog);
+    int ret = start_easytier_host(cname, ckey, clog);
     env->ReleaseStringUTFChars(name, cname);
     env->ReleaseStringUTFChars(key, ckey);
     env->ReleaseStringUTFChars(logDir, clog);

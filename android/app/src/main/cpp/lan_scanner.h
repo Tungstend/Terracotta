@@ -17,11 +17,12 @@ public:
     LANScanner();
     ~LANScanner();
 
-    void start(const std::string& interface_ip, PortCallback cb);
+    void start(PortCallback cb);
     void stop();
 
 private:
     std::thread scanner_thread;
+    std::thread::id scanner_thread_id;
     std::atomic<bool> running = false;
 };
 

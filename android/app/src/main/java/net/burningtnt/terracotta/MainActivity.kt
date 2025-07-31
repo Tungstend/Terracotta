@@ -7,12 +7,22 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import net.burningtnt.terracotta.RoomManager.startGuestVpnService
+import net.burningtnt.terracotta.RoomManager.startHostVpnService
 import net.burningtnt.terracotta.databinding.ActivityMainBinding
 import net.burningtnt.terracotta.service.pendingVpnGuestConfig
+import net.burningtnt.terracotta.service.pendingVpnHostConfig
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+
+    private val hostVpnLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            pendingVpnHostConfig?.let {
+                startHostVpnService(this, it.networkName, it.secret, it.inviteCode)
+            }
+        }
+    }
 
     private val guestVpnLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -56,7 +66,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         binding.host.setOnClickListener {
-            RoomManager.startHosting(this) { code ->
+            RoomManager.startHosting(this, hostVpnLauncher) { code ->
                 Toast.makeText(this, code, Toast.LENGTH_SHORT).show()
             }
         }

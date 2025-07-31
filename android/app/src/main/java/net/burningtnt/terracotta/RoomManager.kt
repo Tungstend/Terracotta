@@ -5,16 +5,18 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.net.wifi.WifiManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
 import net.burningtnt.terracotta.core.LanScanCallback
 import net.burningtnt.terracotta.core.NativeBridge
 import net.burningtnt.terracotta.service.ConnectionService
 import net.burningtnt.terracotta.service.GuestConfig
-import net.burningtnt.terracotta.service.REQUEST_CODE_VPN
+import net.burningtnt.terracotta.service.HostConfig
 import net.burningtnt.terracotta.service.pendingVpnGuestConfig
+import net.burningtnt.terracotta.service.pendingVpnHostConfig
 import java.net.DatagramSocket
-import java.net.InetAddress
 
 object RoomManager {
 
@@ -25,50 +27,51 @@ object RoomManager {
         lock.acquire()
     }
 
-    private fun getWifiIpAddress(context: Context): String? {
-        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        val dhcpInfo = wifiManager.dhcpInfo ?: return null
-
-        val ipInt = dhcpInfo.ipAddress
-        val ipBytes = byteArrayOf(
-            (ipInt and 0xFF).toByte(),
-            (ipInt shr 8 and 0xFF).toByte(),
-            (ipInt shr 16 and 0xFF).toByte(),
-            (ipInt shr 24 and 0xFF).toByte()
-        )
-        return try {
-            InetAddress.getByAddress(ipBytes).hostAddress
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    fun startHosting(ctx: Context, onCode: (String) -> Unit) {
+    fun startHosting(ctx: Activity, vpnLauncher: ActivityResultLauncher<Intent>, onCode: (String) -> Unit) {
         acquireMulticastLock(ctx)
-        val ip = getWifiIpAddress(ctx)
-        if (ip == null) {
-            Log.d("LAN", "Failed to get ip")
-            return
-        }
-        Log.d("LAN", "当前 WiFi IP: $ip")
-        NativeBridge.startLanScan(ip, object : LanScanCallback {
+        NativeBridge.startLanScan(object : LanScanCallback {
             override fun onPortFound(port: Int) {
-                NativeBridge.stopLanScan()
-                val code = NativeBridge.generateInviteCode(port)
-                val result = NativeBridge.parseInviteCode(code) ?: return
-                val name = "terracotta-${result.roomId}"
+                Handler(Looper.getMainLooper()).postDelayed({
+                    NativeBridge.stopLanScan()
+                }, 500)
+                ctx.runOnUiThread {
 
-                val svc = Intent(ctx, ConnectionService::class.java).apply {
-                    putExtra("role", "host")
-                    putExtra("network_name", name)
-                    putExtra("secret", "secret")
-                    putExtra("port", result.port)
-                    putExtra("invite_code", code)
+                    val code = NativeBridge.generateInviteCode(port)
+                    val result = NativeBridge.parseInviteCode(code)
+                    if (result == null) {
+                        Log.e("invite code", "邀请码无效")
+                    } else {
+//                        Log.d("invite code", "$code")
+//                        Log.d("invite code", "terracotta-mc-${result.name.lowercase()}")
+//                        Log.d("invite code", "${result.secret.lowercase()}")
+                        val networkName = "terracotta-mc-${result.name.lowercase()}"
+                        val secret = result.secret.lowercase()
+
+                        val intent = VpnService.prepare(ctx)
+                        if (intent != null) {
+                            pendingVpnHostConfig = HostConfig(networkName, secret, code)
+                            vpnLauncher.launch(intent)
+                        } else {
+                            // 已授权，可以直接启动服务
+                            startHostVpnService(ctx, networkName, secret, code)
+                        }
+
+                        onCode(code)
+                    }
                 }
-                ctx.startService(svc)
-                onCode(code)
             }
         })
+    }
+
+    fun startHostVpnService(ctx: Context, networkName: String, secret: String, inviteCode: String) {
+        val svc = Intent(ctx, ConnectionService::class.java).apply {
+            putExtra("role", "host")
+            putExtra("network_name", networkName)
+            putExtra("secret", secret)
+            putExtra("invite_code", inviteCode)
+        }
+
+        ctx.startService(svc)
     }
 
     fun joinRoom(ctx: Activity, vpnLauncher: ActivityResultLauncher<Intent>, code: String, onError: (String) -> Unit) {

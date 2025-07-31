@@ -21,12 +21,22 @@ class ConnectionService : VpnService() {
 //    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val role = intent?.getStringExtra("role") ?: return START_NOT_STICKY
+        val networkName = intent.getStringExtra("network_name") ?: return START_NOT_STICKY
+        val secret = intent.getStringExtra("secret") ?: "secret"
+        val port = intent.getIntExtra("port", 25565)
+        val forwardPort = intent.getIntExtra("local_port", 55678)
+
         val builder = Builder()
             .setSession("EasyTier VPN")
             .setMtu(1300)
             .setBlocking(false)
-            .addAddress("10.144.144.2", 24)
             .addRoute("10.144.144.0", 24)
+
+        if (role.equals("host"))
+            builder.addAddress("10.144.144.1", 24)
+        else
+            builder.addAddress("10.144.144.2", 24)
 
         try {
             builder.addDisallowedApplication("net.burningtnt.terracotta")
@@ -37,12 +47,6 @@ class ConnectionService : VpnService() {
         val vpnInterface = builder.establish() ?: throw Exception("VPN 创建失败")
         val tunFd = vpnInterface.fileDescriptor
 
-        val role = intent?.getStringExtra("role") ?: return START_NOT_STICKY
-        val networkName = intent.getStringExtra("network_name") ?: return START_NOT_STICKY
-        val secret = intent.getStringExtra("secret") ?: "secret"
-        val port = intent.getIntExtra("port", 25565)
-        val forwardPort = intent.getIntExtra("local_port", 55678)
-
         startForeground(NOTIF_ID, createNotification(role, forwardPort, intent.getStringExtra("invite_code")))
 
         val logDir = filesDir.absolutePath
@@ -51,7 +55,23 @@ class ConnectionService : VpnService() {
             try {
                 val i: Int;
                 if (role == "host") {
-                    i = NativeBridge.startEasyTierHost(networkName, secret, port, logDir)
+                    i = NativeBridge.startEasyTierHost(networkName, secret, logDir)
+                    Thread.sleep(5000)
+                    val pfd = ParcelFileDescriptor.dup(tunFd)
+                    vpnPFD = pfd
+                    val result = NativeBridge.setTunFd("Terracotta-Host", pfd)
+                    if (result != 0) {
+                        Log.e("EasyTier", "❌ setTunFd failed")
+                    } else {
+                        Log.i("EasyTier", "✅ setTunFd success")
+                    }
+                    Thread {
+                        while (true) {
+                            val retainResult = NativeBridge.retainNetworkInstance(arrayOf("Terracotta-Host"))
+                            Log.i("EasyTier", "retainNetworkInstance result = $retainResult")
+                            Thread.sleep(10000)
+                        }
+                    }.start()
                 } else {
                     i = NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, logDir)
                     Thread.sleep(5000)

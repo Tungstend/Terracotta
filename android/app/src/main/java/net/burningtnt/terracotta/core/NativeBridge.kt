@@ -10,13 +10,13 @@ object NativeBridge {
 
     external fun generateInviteCode(port: Int): String
     external fun parseInviteCode(code: String): InviteParseResult?
-    external fun startLanScan(ip: String, callback: LanScanCallback)
+    external fun startLanScan(callback: LanScanCallback)
     external fun stopLanScan()
     external fun startFakeServer(motd: String, listenPort: Int)
     external fun stopFakeServer()
     external fun setTunFd(instanceName: String, tunFd: ParcelFileDescriptor): Int
     external fun retainNetworkInstance(names: Array<String>): Int
-    external fun startEasyTierHost(name: String, key: String, port: Int, logDir: String): Int
+    external fun startEasyTierHost(name: String, key: String, logDir: String): Int
     external fun startEasyTierGuest(name: String, key: String, localPort: Int, remotePort: Int, logDir: String): Int
 
 }

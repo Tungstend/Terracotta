@@ -9,6 +9,21 @@
 #include <algorithm>
 
 const std::string BASE34 = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+static constexpr int BASE = 34;
+
+uint8_t rem34(std::vector<uint8_t>& number) {
+    uint32_t remainder = 0;
+    for (size_t i = 0; i < number.size(); ++i) {
+        uint32_t temp = (remainder << 8) + number[i];
+        number[i] = temp / BASE;
+        remainder = temp % BASE;
+    }
+    // 清除前导0
+    while (!number.empty() && number[0] == 0) {
+        number.erase(number.begin());
+    }
+    return remainder;
+}
 
 int lookup_base34(char c) {
     c = std::toupper(c);
@@ -39,23 +54,51 @@ void bigint_mul(std::vector<uint32_t>& value, uint32_t multiplier) {
     if (carry > 0) value.push_back(static_cast<uint32_t>(carry));
 }
 
-int checksum(const std::string& str) {
-    int sum = 0;
-    for (char c : str) sum += c;
-    return sum % 34;
-}
-
-std::string insert_hyphens(const std::string& input) {
-    std::string out;
-    for (size_t i = 0; i < input.size(); ++i) {
-        if (i > 0 && i % 5 == 0) out += '-';
-        out += input[i];
-    }
-    return out;
-}
-
 std::string generate_invite_code(uint64_t room_id, uint16_t port) {
-    return nullptr;
+    // 构造 15 字节 buffer（模拟随机种子，实际中为真实随机）
+    std::vector<uint8_t> buffer(15);
+    std::mt19937_64 rng(room_id);  // 用room_id初始化随机种子
+    for (auto& b : buffer) b = rng() & 0xFF;
+
+    // 构建 value: BigInteger = buffer interpreted as big-endian integer
+    std::vector<uint8_t> value = buffer;
+
+    // 替换低 2 字节为端口（value[-2], value[-1]）
+    if (value.size() >= 2) {
+        value[value.size() - 2] = (port >> 8) & 0xFF;
+        value[value.size() - 1] = port & 0xFF;
+    }
+
+    std::vector<char> chars;
+    int checksum = 0;
+
+    // name[15]
+    for (int i = 0; i < 15; ++i) {
+        uint8_t r = rem34(value);
+        chars.push_back(BASE34[r]);
+        checksum = (checksum + r) % BASE;
+    }
+
+    // secret[9]
+    for (int i = 0; i < 9; ++i) {
+        uint8_t r = rem34(value);
+        chars.push_back(BASE34[r]);
+        checksum = (checksum + r) % BASE;
+    }
+
+    // secret[9] = checksum
+    chars.push_back(BASE34[checksum]);
+
+    // 格式化为 XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+    std::ostringstream code;
+    for (size_t i = 0; i < chars.size(); ++i) {
+        code << chars[i];
+        if ((i + 1) % 5 == 0 && i + 1 < chars.size()) {
+            code << '-';
+        }
+    }
+
+    return code.str();  // e.g., "F12GY-B9FJV-9H4KC-PQ38N-X7WD2"
 }
 
 InviteParseResult parse_invite_code(const std::string& input) {

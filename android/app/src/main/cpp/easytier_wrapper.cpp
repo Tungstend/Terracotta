@@ -96,21 +96,97 @@ void monitor_network_thread() {
 }
 
 // 🟢 房主模式
-int start_easytier_host(const std::string& network_name, const std::string& secret, int port, const std::string& log_dir) {
+int start_easytier_host(const std::string& network_name, const std::string& secret, const std::string& log_dir) {
     std::ostringstream oss;
-    oss << R"({
-        "instance_name": "host-)" << std::chrono::system_clock::now().time_since_epoch().count() << R"(",
-        "virtual_ipv4": "10.144.144.1",
-        "network_name": ")" << network_name << R"(",
-        "network_secret": ")" << secret << R"(",
-        "mode": "host",
-        "tcp_keepalive": true,
-        "compress": true,
-        "relay_servers": ["public.easytier.top:11010"]
-    })";
+    oss << "instance_name = \"Terracotta-Host\"" << "\n";
+    oss << "instance_id = \"4fd1f20f-9f74-48ab-9d7d-84db7c3ac4eb\"" << "\n";
+    oss << "ipv4 = \"10.144.144.1\"" << "\n";
+    oss << "dhcp = false" << "\n";
+    oss << "listeners = [" << "\n";
+    oss << "    \"tcp://0.0.0.0:11010\"," << "\n";
+    oss << "    \"udp://0.0.0.0:11010\"," << "\n";
+    oss << "    \"wg://0.0.0.0:11010\"," << "\n";
+    oss << "]" << "\n";
+    oss << "rpc_portal = \"0.0.0.0:0\"" << "\n\n";
 
-    std::string json = oss.str();
-    return run_network_instance(json.c_str());
+    //oss << "[file_logger]\n";
+    //oss << "level = \"debug\"\n";
+    //oss << "file = \"guest.log\"\n";
+    //oss << "dir = \"" << log_dir << "\"\n\n";
+
+    //oss << "[console_logger]\n";
+    //oss << "level = \"debug\"\n\n";
+
+    oss << "[network_identity]\n";
+    oss << "network_name = \"" << network_name << "\"\n";
+    oss << "network_secret = \"" << secret << "\"\n\n";
+
+    // 统一放入 [flags]
+    oss << "[flags]\n";
+    //oss << "no_tun = true\n";
+    //oss << "compression = \"zstd\"\n";
+    //oss << "multi_thread = true\n";
+    oss << "latency_first = true\n";
+    oss << "enable_kcp_proxy = true\n\n";
+
+    // 写 relay servers 为 [[peers]]
+    const char* peers[] = {
+            "tcp://public.easytier.top:11010",
+            "tcp://ah.nkbpal.cn:11010",
+            "tcp://turn.hb.629957.xyz:11010",
+            "tcp://turn.js.629957.xyz:11012",
+            "tcp://sh.993555.xyz:11010",
+            "tcp://turn.bj.629957.xyz:11010",
+            "tcp://et.sh.suhoan.cn:11010",
+            "tcp://et-hk.clickor.click:11010",
+            "tcp://et.01130328.xyz:11010",
+            "tcp://et.gbc.moe:11011"
+    };
+
+    for (const auto& uri : peers) {
+        oss << "[[peer]]\n";
+        oss << "uri = \"" << uri << "\"\n\n";
+    }
+
+    // 添加结尾标记以便排查配置截断问题
+    //oss << "\n# === END OF CONFIG ===\n";
+
+    std::string toml_config = oss.str();
+    std::istringstream iss(toml_config);
+    std::string line;
+    while (std::getline(iss, line)) {
+        __android_log_print(ANDROID_LOG_INFO, "EasyTier TOML", "%s", line.c_str());
+    }
+
+    // 解析配置
+    if (parse_config(toml_config.c_str()) != 0)
+        print_last_error();
+
+    int ret = run_network_instance(toml_config.c_str());
+    print_local_ips();
+    if (ret != 0) {
+        print_last_error();
+    }
+
+    /*constexpr size_t MAX_INFOS = 10;
+    KeyValuePair infos[MAX_INFOS];
+
+    int count = collect_network_infos(infos, MAX_INFOS);
+    if (count <= 0)
+        LOGW("⚠️ 无法获取 EasyTier 网络状态");
+
+    for (int i = 0; i < count; ++i) {
+        if (infos[i].key && infos[i].value) {
+            LOGI("📡 %s -> %s", infos[i].key, infos[i].value);
+            free_string(infos[i].key);
+            free_string(infos[i].value);
+        }
+    }*/
+
+    std::thread monitor(monitor_network_thread);
+    monitor.detach();  // 后台运行
+
+    return ret;
 }
 
 // 🔵 访客模式
