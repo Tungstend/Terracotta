@@ -15,10 +15,10 @@ class ConnectionService : VpnService() {
 
     private var vpnPFD: ParcelFileDescriptor? = null
 
-    override fun onCreate() {
-        super.onCreate()
-        startForeground(NOTIF_ID, createNotification("guest", 55678, null)) // 或任意 placeholder
-    }
+//    override fun onCreate() {
+//        super.onCreate()
+//        startForeground(NOTIF_ID, createNotification("guest", 55678, null)) // 或任意 placeholder
+//    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val builder = Builder()
