@@ -16,3 +16,7 @@ cat <<EOF > /Library/LaunchAgents/net.burningtnt.terracotta.daemon.plist
 </dict>
 </plist>
 EOF
+
+killall -SIGUSR1 terracotta
+
+exit 0

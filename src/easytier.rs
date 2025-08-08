@@ -2,7 +2,7 @@ use std::{
     env, fs,
     io::{BufRead, BufReader, Cursor, Error, ErrorKind},
     path::{Path, PathBuf},
-    process::{self, Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
@@ -24,7 +24,7 @@ pub struct EasytierFactory {
 }
 
 pub struct Easytier {
-    process: Arc<Mutex<process::Child>>,
+    process: Arc<Mutex<Child>>,
 }
 
 fn create() -> EasytierFactory {
@@ -53,7 +53,7 @@ fn create() -> EasytierFactory {
 
 impl Drop for EasytierFactory {
     fn drop(&mut self) {
-        self.drop_in_place();
+        self.remove();
     }
 }
 
@@ -63,20 +63,32 @@ impl EasytierFactory {
 
         fs::metadata(&self.exe).unwrap();
 
-        let mut process: process::Child = Command::new(self.exe.as_path())
-            .args(args)
+        let mut process = Command::new(self.exe.as_path());
+        process.args(args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+
+        #[cfg(target_family = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            process.creation_flags(0x08000000);
+        }
+
+        let mut process = process.spawn().unwrap();
 
         let (sender, receiver) = mpsc::channel::<String>();
         let pump = [
-            ("stdout", Self::pump_std(&sender, process.stdout.take().unwrap())),
-            ("stderr", Self::pump_std(&sender, process.stderr.take().unwrap())),
+            (
+                "stdout",
+                Self::pump_std(&sender, process.stdout.take().unwrap()),
+            ),
+            (
+                "stderr",
+                Self::pump_std(&sender, process.stderr.take().unwrap()),
+            ),
         ];
 
-        let process: Arc<Mutex<process::Child>> = Arc::new(Mutex::new(process));
+        let process: Arc<Mutex<Child>> = Arc::new(Mutex::new(process));
         let process2 = process.clone();
 
         thread::spawn(move || {
@@ -154,7 +166,7 @@ impl EasytierFactory {
         });
     }
 
-    pub fn drop_in_place(&self) {
+    pub fn remove(&self) {
         let dir = self.exe.parent();
         if let Some(dir) = dir {
             let _ = fs::remove_dir_all(dir);
