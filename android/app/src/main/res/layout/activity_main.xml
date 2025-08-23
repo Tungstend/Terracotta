@@ -30,4 +30,20 @@
         android:layout_marginTop="10dp"
         app:layout_constraintTop_toBottomOf="@+id/code" />
 
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:id="@+id/host_text"
+        android:text="房主：点击创建房间->启动游戏->进入存档->对局域网开放->下拉找到通知->点通知详情并复制邀请码分享给他人。"
+        app:layout_constraintTop_toBottomOf="@+id/guest" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:id="@+id/guest_text"
+        android:text="访客：粘贴邀请码->点击加入房间->启动游戏->多人游戏->会自动出现联机大厅"
+        app:layout_constraintTop_toBottomOf="@+id/host_text" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

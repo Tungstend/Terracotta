@@ -113,7 +113,7 @@ class ConnectionService : VpnService() {
 
                 if (role != "host") {
                     // 访客才开“大厅”
-                    NativeBridge.startFakeServer("陶瓦大厅", forwardPort)
+                    NativeBridge.startFakeServer("联机大厅", forwardPort)
                 }
 
                 Log.d("EasyTier", "Start code = $code")
@@ -153,6 +153,8 @@ class ConnectionService : VpnService() {
         if (stopping) return
         stopping = true
 
+        NativeBridge.stopFakeServer()
+
         // 1) 先停保活线程与“大厅”
         keepAliveThread?.interrupt()
         keepAliveThread = null
@@ -173,12 +175,7 @@ class ConnectionService : VpnService() {
 
         // 3) 停止前台通知并结束 Service
         try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
-            }
+            stopForeground(STOP_FOREGROUND_REMOVE)
         } catch (_: Throwable) {}
 
         stopSelf()
