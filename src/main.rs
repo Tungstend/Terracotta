@@ -36,10 +36,11 @@ pub mod code;
 pub mod core;
 pub mod easytier;
 pub mod fakeserver;
-#[cfg(target_family = "windows")]
-pub mod logging;
 pub mod scanning;
 pub mod server;
+
+#[cfg(target_family = "windows")]
+pub mod logging;
 
 #[cfg(target_os = "macos")]
 pub mod ui_macos;
@@ -142,36 +143,66 @@ async fn main() {
 
     #[cfg(target_family = "windows")]
     {
-        if unsafe { winapi::um::wincon::AttachConsole(u32::MAX) } == 0
-            && std::io::Error::last_os_error().raw_os_error().unwrap() != 0x6
-        {
-            if unsafe { winapi::um::consoleapi::AllocConsole() } == 0 {
-                panic!("{:?}", std::io::Error::last_os_error());
-            }
-        }
+        if unsafe { winapi::um::wincon::AttachConsole(u32::MAX) } != 0 {
+            unsafe fn get_parent_id() -> u32 {
+                use winapi::{
+                    shared::minwindef::FALSE,
+                    um::{
+                        handleapi::CloseHandle,
+                        tlhelp32::{
+                            CreateToolhelp32Snapshot, PROCESSENTRY32, Process32First,
+                            Process32Next, TH32CS_SNAPPROCESS,
+                        },
+                    },
+                };
 
-        use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+                let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+                if snapshot.is_null() {
+                    panic!("{:?}", std::io::Error::last_os_error());
+                }
+                let mut entry: PROCESSENTRY32 = unsafe { std::mem::zeroed() };
+                entry.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
 
-        if let Ok(f) = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .share_mode(0x2)
-            .open("CONOUT$")
-        {
-            let handle: winapi::um::winnt::HANDLE = f.as_raw_handle() as _;
-            std::mem::forget(f);
+                if unsafe { Process32First(snapshot, &mut entry) } == FALSE {
+                    unsafe { CloseHandle(snapshot) };
+                    panic!("{:?}", std::io::Error::last_os_error());
+                }
 
-            unsafe {
-                for h in [
-                    winapi::um::winbase::STD_OUTPUT_HANDLE,
-                    winapi::um::winbase::STD_ERROR_HANDLE,
-                ] {
-                    if winapi::um::processenv::SetStdHandle(h, handle) == 0 {
-                        panic!("{:?}", std::io::Error::last_os_error());
+                let current_pid = std::process::id();
+                loop {
+                    if entry.th32ProcessID == current_pid {
+                        return entry.th32ParentProcessID;
+                    }
+                    if unsafe { Process32Next(snapshot, &mut entry) } == FALSE {
+                        break;
                     }
                 }
+                unsafe { CloseHandle(snapshot) };
+                panic!("Cannot find parent process ID for PID {}", current_pid);
             }
+
+            let parent = unsafe {
+                winapi::um::processthreadsapi::OpenProcess(
+                    winapi::um::winnt::SYNCHRONIZE,
+                    winapi::shared::minwindef::FALSE,
+                    get_parent_id(),
+                )
+            };
+            if parent.is_null() {
+                panic!("{:?}", std::io::Error::last_os_error());
+            }
+
+            let parent = std::sync::atomic::AtomicPtr::new(parent);
+            thread::spawn(move || {
+                let parent = parent.load(std::sync::atomic::Ordering::Acquire);
+
+                unsafe {
+                    use winapi::um::{synchapi::WaitForSingleObject, winbase::INFINITE};
+                    WaitForSingleObject(parent, INFINITE);
+
+                    winapi::um::wincon::FreeConsole();
+                }
+            });
         }
     }
 
@@ -190,14 +221,38 @@ async fn main() {
                 println!("Usage: terracotta [OPTIONS]");
                 println!("Options:");
                 println!("  --help: Print this help message");
-                println!("  --hmcl: [INTERNAL USE ONLY] For HMCL only.");
+                println!("  --hmcl: [HMCL] For HMCL only.");
+                #[cfg(target_os = "windows")]
+                println!("  --hmcl2: [INTERNAL] For HMCL only.");
                 #[cfg(target_os = "macos")]
-                println!("  --daemon: [INTERNAL USE ONLY] Run in daemon mode.");
+                println!("  --daemon: [INTERNAL] Run in daemon mode.");
             }
             _ => main_panic(arguments),
         },
         2 => match arguments[0].as_str() {
             "--hmcl" => {
+                cfg_if::cfg_if! {
+                    if #[cfg(target_family = "windows")] {
+                        use std::os::windows::process::CommandExt;
+                        std::process::Command::new(std::env::current_exe().unwrap()).args(["--hmcl2", &arguments[1]]).creation_flags(0x08).spawn().unwrap();
+
+                        let time = SystemTime::now();
+                        while !SystemTime::now().duration_since(time).is_ok_and(|d| d > Duration::from_millis(8000)) {
+                            if fs::File::open(&arguments[1]).is_ok() {
+                                return;
+                            }
+                        }
+                        panic!("Delegate process hasn't started in 8 seconds.");
+                    } else {
+                        main_general(Mode::HMCL {
+                            file: arguments[1].clone(),
+                        })
+                        .await
+                    }
+                }
+            }
+            #[cfg(target_family = "windows")]
+            "--hmcl2" => {
                 main_general(Mode::HMCL {
                     file: arguments[1].clone(),
                 })
@@ -280,18 +335,15 @@ cfg_if::cfg_if! {
             };
 
             if let None = error {
-                for timeout in [200, 200, 400, 800, 1600] {
-                    thread::sleep(Duration::from_millis(timeout));
+                thread::sleep(Duration::from_millis(5000));
 
-                    let state = Lock::get_state();
-                    if let Lock::Secondary { port } = &state {
-                        logging!("UI", "Running in secondary mode, port={}.", port);
-
-                        main_secondary(*port, mode).await;
-                        return;
-                    } else {
-                        error = new_error("Cannot detect daemon process after 2000s.");
-                    }
+                let state = Lock::get_state();
+                if let Lock::Secondary { port } = &state {
+                    logging!("UI", "Running in secondary mode, port={}.", port);
+                    main_secondary(*port, mode).await;
+                    return;
+                } else {
+                    error = new_error("Cannot detect daemon process after 2000s.");
                 }
             }
 
@@ -414,13 +466,11 @@ async fn secondary_switch(port: u16) -> Option<Lock> {
     let Ok(value) = serde_json::from_str::<'_, serde_json::Value>(&body) else {
         return None;
     };
-    let Some(version) = value.get("version").and_then(|v| v.as_str()) else {
+    let Some(compile_timestamp) = value.get("compile_timestamp").and_then(|v| v.as_str()) else {
         return None;
     };
 
-    if let Some(this) = parse_version(env!("TERRACOTTA_VERSION"))
-        && let Some(running) = parse_version(version)
-        && this > running
+    if let Ok(running) = compile_timestamp.parse::<u128>() && timestamp::compile_time!() > running
     {
         let Ok(response) = client
             .get(format!("http://127.0.0.1:{}/panic?peaceful=true", port))
@@ -443,29 +493,6 @@ async fn secondary_switch(port: u16) -> Option<Lock> {
         }
     }
     return None;
-}
-
-fn parse_version(version: &str) -> Option<u32> {
-    if version.len() < 5 {
-        return None;
-    }
-
-    let parts: Vec<&str> = version.split('.').collect();
-    if parts.len() != 3 {
-        return None;
-    }
-
-    let Ok(major) = parts[0].parse::<u8>() else {
-        return None;
-    };
-    let Ok(minor) = parts[1].parse::<u8>() else {
-        return None;
-    };
-    let Ok(patch) = parts[2].parse::<u8>() else {
-        return None;
-    };
-
-    return Some(((major as u32) << 16) | ((minor as u32) << 8) | (patch as u32));
 }
 
 fn output_port(port: u16, file: String) {
