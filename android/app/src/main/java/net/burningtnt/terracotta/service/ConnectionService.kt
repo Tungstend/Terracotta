@@ -195,7 +195,7 @@ class ConnectionService : VpnService() {
         )
 
         val builder = Notification.Builder(this, channelId)
-            .setSmallIcon(R.drawable.terracotta)
+            .setSmallIcon(R.drawable.enchanting)
             .setContentTitle("联机工具正在运行")
             .setContentText(if (role == "host") "房主模式运行中." else "访客已连接")
             .setOngoing(true)                // 已有
