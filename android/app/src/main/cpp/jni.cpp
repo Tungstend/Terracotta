@@ -233,7 +233,7 @@ Java_net_burningtnt_terracotta_core_NativeBridge_retainNetworkInstance(
 }
 
 extern int start_easytier_host(const std::string&, const std::string&, const std::string&);
-extern int start_easytier_guest(const std::string&, const std::string&, int, int, int, const std::string&);
+extern int start_easytier_guest(const std::string&, const std::string&, int, int, int, const std::string&, const std::string&);
 
 extern "C"
 JNIEXPORT jint JNICALL
@@ -252,16 +252,18 @@ Java_net_burningtnt_terracotta_core_NativeBridge_startEasyTierHost(
 extern "C"
 JNIEXPORT jint JNICALL
 Java_net_burningtnt_terracotta_core_NativeBridge_startEasyTierGuest(
-        JNIEnv* env, jobject, jstring name, jstring key, jint local_port, jint remote_port, jobject roomKind, jstring logDir) {
+        JNIEnv* env, jobject, jstring name, jstring key, jint local_port, jint remote_port, jobject roomKind, jstring ipv4, jstring logDir) {
     const char* cname = env->GetStringUTFChars(name, nullptr);
     const char* ckey = env->GetStringUTFChars(key, nullptr);
+    const char* cipv4 = env->GetStringUTFChars(ipv4, nullptr);
     const char* clog = env->GetStringUTFChars(logDir, nullptr);
     jclass clsRoomKind = env->FindClass("net/burningtnt/terracotta/core/RoomKind");
     jmethodID midOrdinal = env->GetMethodID(clsRoomKind, "ordinal", "()I");
     jint kindOrdinal = env->CallIntMethod(roomKind, midOrdinal);
-    int ret = start_easytier_guest(cname, ckey, local_port, remote_port, kindOrdinal, clog);
+    int ret = start_easytier_guest(cname, ckey, local_port, remote_port, kindOrdinal, cipv4, clog);
     env->ReleaseStringUTFChars(name, cname);
     env->ReleaseStringUTFChars(key, ckey);
+    env->ReleaseStringUTFChars(ipv4, cipv4);
     env->ReleaseStringUTFChars(logDir, clog);
     return ret;
 }

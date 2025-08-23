@@ -191,7 +191,7 @@ int start_easytier_host(const std::string& network_name, const std::string& secr
 
 // 🔵 访客模式
 int start_easytier_guest(const std::string& network_name, const std::string& secret,
-                         int local_port, int remote_port, int room_kind, const std::string& log_dir) {
+                         int local_port, int remote_port, int room_kind, const std::string& ipv4, const std::string& log_dir) {
     bool ipv6_only = false;
     {
         int fd = socket(AF_INET6, SOCK_DGRAM, 0);
@@ -210,7 +210,7 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
     std::ostringstream oss;
     oss << "instance_name = \"Terracotta-Guest\"" << "\n";
     oss << "instance_id = \"4fd1f20f-9f74-48ab-9d7d-84db7c3ac4eb\"" << "\n";
-    oss << "ipv4 = \"10.144.144.2/24\"" << "\n";
+    oss << "ipv4 = \"" << ipv4 << "/24\"" << "\n";
     oss << "dhcp = false" << "\n";
     oss << "listeners = [" << "\n";
     oss << "    \"tcp://0.0.0.0:11010\"," << "\n";

@@ -41,10 +41,12 @@ class ConnectionService : VpnService() {
             .setBlocking(false)
             .addRoute("10.144.144.0", 24)
 
+        val guest_ipv4 = pickGuestIpV4(getDeviceUUID(this), roomKind, networkName, secret);
+
         if (role.equals("host"))
             builder.addAddress("10.144.144.1", 24)
         else
-            builder.addAddress("10.144.144.2", 24)
+            builder.addAddress(guest_ipv4, 24)
 
         try {
             builder.addDisallowedApplication("net.burningtnt.terracotta")
@@ -81,7 +83,7 @@ class ConnectionService : VpnService() {
                         }
                     }.start()
                 } else {
-                    i = NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, roomKind, logDir)
+                    i = NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, roomKind, guest_ipv4, logDir)
                     Thread.sleep(5000)
                     val pfd = ParcelFileDescriptor.dup(tunFd)
                     vpnPFD = pfd
