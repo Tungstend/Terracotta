@@ -46,4 +46,12 @@
         android:text="访客：粘贴邀请码->点击加入房间->启动游戏->多人游戏->会自动出现联机大厅"
         app:layout_constraintTop_toBottomOf="@+id/host_text" />
 
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:id="@+id/about_text"
+        android:text="该软件兼容 陶瓦 (Terracotta) 和 PCL2-CE，但并非由这两个软件的开发者开发，如有问题，请联系 FCL 开发团队，不要反馈错人。"
+        app:layout_constraintTop_toBottomOf="@+id/guest_text" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

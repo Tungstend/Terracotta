@@ -184,7 +184,7 @@ class ConnectionService : VpnService() {
     private fun createNotification(role: String, forwardPort: Int, inviteCode: String?): Notification {
         val channelId = "terracotta_channel"
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(channelId, "Terracotta 联机", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(channelId, "联机", NotificationManager.IMPORTANCE_LOW)
         manager.createNotificationChannel(channel)
 
         // ConnectionService.kt -> createNotification(...)
@@ -196,7 +196,7 @@ class ConnectionService : VpnService() {
 
         val builder = Notification.Builder(this, channelId)
             .setSmallIcon(R.drawable.terracotta)
-            .setContentTitle("Terracotta 正在运行")
+            .setContentTitle("联机工具正在运行")
             .setContentText(if (role == "host") "房主模式运行中." else "访客已连接")
             .setOngoing(true)                // 已有
             .setDeleteIntent(deletePending)  // ★ 新增：被“划掉”时回调
