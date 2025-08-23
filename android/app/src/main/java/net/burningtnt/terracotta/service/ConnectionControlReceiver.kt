@@ -6,12 +6,22 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 
 class ConnectionControlReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         when (intent?.action) {
             "ACTION_EXIT" -> {
-                android.os.Process.killProcess(android.os.Process.myPid())
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, ConnectionService::class.java).setAction("ACTION_STOP_VPN")
+                )
+            }
+            "ACTION_NOTIF_DELETED" -> {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, ConnectionService::class.java).setAction("ACTION_REPOST_NOTIFICATION")
+                )
             }
             "ACTION_COPY_INVITE_CODE" -> {
                 val code = intent.getStringExtra("invite_code") ?: return

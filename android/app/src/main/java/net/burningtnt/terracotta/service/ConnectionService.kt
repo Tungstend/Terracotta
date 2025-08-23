@@ -3,7 +3,6 @@ package net.burningtnt.terracotta.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
@@ -15,15 +14,40 @@ import net.burningtnt.terracotta.core.RoomKind
 
 class ConnectionService : VpnService() {
 
-    private var vpnPFD: ParcelFileDescriptor? = null
+    private var vpnInterfacePfd: ParcelFileDescriptor? = null // 原始 establish() 返回
+    private var tunDupPfd: ParcelFileDescriptor? = null       // 传给 Native 的 dup FD
+    private var keepAliveThread: Thread? = null
+    private var roleTag: String = "" // "Terracotta-Host" / "Terracotta-Guest"
+    @Volatile private var stopping = false
 
-//    override fun onCreate() {
-//        super.onCreate()
-//        startForeground(NOTIF_ID, createNotification("guest", 55678, null)) // 或任意 placeholder
-//    }
+    private var currentRole: String = ""
+    private var currentForwardPort: Int = 0
+    private var currentInviteCode: String? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+
+        when (intent?.action) {
+            "ACTION_REPOST_NOTIFICATION" -> {
+                // 用当前状态重建并刷新前台通知
+                // 注意：这里需要你能拿到 role / forwardPort / inviteCode 等当前配置
+                val notif = createNotification(currentRole, currentForwardPort, currentInviteCode)
+                // 方式一：如果前台状态意外丢失，直接再调用 startForeground
+                startForeground(NOTIF_ID, notif)
+
+                // 方式二：若仍在前台，仅需重新 notify（两者选其一）
+                // val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                // manager.notify(NOTIF_ID, notif)
+
+                return START_NOT_STICKY
+            }
+            "ACTION_STOP_VPN" -> {
+                stopVpn() // 上条回答已提供封装
+                return START_NOT_STICKY
+            }
+        }
+
         val role = intent?.getStringExtra("role") ?: return START_NOT_STICKY
+        roleTag = if (role == "host") "Terracotta-Host" else "Terracotta-Guest"
         val networkName = intent.getStringExtra("network_name") ?: return START_NOT_STICKY
         val secret = intent.getStringExtra("secret") ?: "secret"
         val port = intent.getIntExtra("port", 25565)
@@ -48,14 +72,14 @@ class ConnectionService : VpnService() {
         else
             builder.addAddress(guest_ipv4, 24)
 
-        try {
-            builder.addDisallowedApplication("net.burningtnt.terracotta")
-        } catch (e: PackageManager.NameNotFoundException) {
-            e.printStackTrace()
-        }
+        try { builder.addDisallowedApplication("net.burningtnt.terracotta") } catch (_: Exception) {}
+        val pfd = builder.establish() ?: throw Exception("VPN 创建失败")
+        vpnInterfacePfd = pfd
+        val tunFd = pfd.fileDescriptor
 
-        val vpnInterface = builder.establish() ?: throw Exception("VPN 创建失败")
-        val tunFd = vpnInterface.fileDescriptor
+        currentRole = role
+        currentForwardPort = forwardPort
+        currentInviteCode = intent.getStringExtra("invite_code")
 
         startForeground(NOTIF_ID, createNotification(role, forwardPort, intent.getStringExtra("invite_code")))
 
@@ -63,63 +87,101 @@ class ConnectionService : VpnService() {
 
         Thread {
             try {
-                val i: Int;
-                if (role == "host") {
-                    i = NativeBridge.startEasyTierHost(networkName, secret, logDir)
-                    Thread.sleep(5000)
-                    val pfd = ParcelFileDescriptor.dup(tunFd)
-                    vpnPFD = pfd
-                    val result = NativeBridge.setTunFd("Terracotta-Host", pfd)
-                    if (result != 0) {
-                        Log.e("EasyTier", "❌ setTunFd failed")
-                    } else {
-                        Log.i("EasyTier", "✅ setTunFd success")
-                    }
-                    Thread {
-                        while (true) {
-                            val retainResult = NativeBridge.retainNetworkInstance(arrayOf("Terracotta-Host"))
-                            Log.i("EasyTier", "retainNetworkInstance result = $retainResult")
-                            Thread.sleep(10000)
-                        }
-                    }.start()
+                val code = if (role == "host") {
+                    NativeBridge.startEasyTierHost(networkName, secret, logDir)
                 } else {
-                    i = NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, roomKind, guest_ipv4, logDir)
-                    Thread.sleep(5000)
-                    val pfd = ParcelFileDescriptor.dup(tunFd)
-                    vpnPFD = pfd
-                    val result = NativeBridge.setTunFd("Terracotta-Guest", pfd)
-                    if (result != 0) {
-                        Log.e("EasyTier", "❌ setTunFd failed")
-                    } else {
-                        Log.i("EasyTier", "✅ setTunFd success")
+                    NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, roomKind, guest_ipv4, logDir)
+                }
+
+                // 等待 EasyTier 初始化完成（避免固定 sleep 5s，可以保留但最好有超时与停止检查）
+                Thread.sleep(1500)
+                if (stopping) return@Thread
+
+                // 复制 FD 交给 Native
+                tunDupPfd = ParcelFileDescriptor.dup(tunFd)
+                val setRet = NativeBridge.setTunFd(roleTag, tunDupPfd!!)
+                if (setRet != 0) Log.e("EasyTier", "❌ setTunFd failed") else Log.i("EasyTier", "✅ setTunFd success")
+
+                // 启动保活线程（可选）：改成受控线程，能在 stop 时退出
+                keepAliveThread = Thread {
+                    while (!stopping) {
+                        val retainResult = NativeBridge.retainNetworkInstance(arrayOf(roleTag))
+                        Log.i("EasyTier", "retainNetworkInstance result = $retainResult")
+                        try { Thread.sleep(10_000) } catch (_: InterruptedException) {}
                     }
-                    Thread {
-                        while (true) {
-                            val retainResult = NativeBridge.retainNetworkInstance(arrayOf("Terracotta-Guest"))
-                            Log.i("EasyTier", "retainNetworkInstance result = $retainResult")
-                            Thread.sleep(10000)
-                        }
-                    }.start()
+                }.also { it.start() }
+
+                if (role != "host") {
+                    // 访客才开“大厅”
                     NativeBridge.startFakeServer("陶瓦大厅", forwardPort)
                 }
-                Log.d("EasyTier code", "EasyTier start with code: $i")
+
+                Log.d("EasyTier", "Start code = $code")
             } catch (e: Exception) {
                 Log.e("ConnectionService", "启动失败: ${e.message}", e)
-                stopSelf()
+                stopVpn()
             }
         }.start()
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onRevoke() {
+        // 系统/用户从 VPN 开关断开
+        stopVpn()
+        super.onRevoke()
+    }
+
     override fun onDestroy() {
-        vpnPFD?.close()
-        vpnPFD = null
-        stopForeground(true)
-        NativeBridge.retainNetworkInstance(emptyArray())
+        // 双重保险：若还有资源未关，继续关
+        stopVpn()
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (!stopping && vpnInterfacePfd != null) {
+            // 兜底：通知被系统清了或任务被移除时，立刻重顶前台通知
+            val notif = createNotification(currentRole, currentForwardPort, currentInviteCode)
+            startForeground(NOTIF_ID, notif)
+        }
+    }
+
+    private fun stopVpn() {
+        if (stopping) return
+        stopping = true
+
+        // 1) 先停保活线程与“大厅”
+        keepAliveThread?.interrupt()
+        keepAliveThread = null
+        try {
+            // 如果 Native 有 stop API，在此调用（示例名，按你 NativeBridge 实际函数替换）
+            // NativeBridge.stopFakeServer()
+            // NativeBridge.stopNetworkInstance(roleTag)
+            // 如果没有 stop API，至少把 retain 置空让 native 不再保活：
+            NativeBridge.retainNetworkInstance(emptyArray())
+        } catch (_: Throwable) {}
+
+        // 2) 关闭 Tun FD（先关交给 Native 的 dup，再关原始 establish 的）
+        try { tunDupPfd?.close() } catch (_: Throwable) {}
+        tunDupPfd = null
+
+        try { vpnInterfacePfd?.close() } catch (_: Throwable) {}
+        vpnInterfacePfd = null
+
+        // 3) 停止前台通知并结束 Service
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (_: Throwable) {}
+
+        stopSelf()
     }
 
     private fun createNotification(role: String, forwardPort: Int, inviteCode: String?): Notification {
@@ -128,11 +190,19 @@ class ConnectionService : VpnService() {
         val channel = NotificationChannel(channelId, "Terracotta 联机", NotificationManager.IMPORTANCE_LOW)
         manager.createNotificationChannel(channel)
 
+        // ConnectionService.kt -> createNotification(...)
+        val deleteIntent = Intent(this, ConnectionControlReceiver::class.java)
+            .setAction("ACTION_NOTIF_DELETED")
+        val deletePending = PendingIntent.getBroadcast(
+            this, 100, deleteIntent, PendingIntent.FLAG_IMMUTABLE
+        )
+
         val builder = Notification.Builder(this, channelId)
             .setSmallIcon(R.drawable.terracotta)
             .setContentTitle("Terracotta 正在运行")
-            .setContentText(if (role == "host") "房主模式运行中..." else "访客已连接")
-            .setOngoing(true)
+            .setContentText(if (role == "host") "房主模式运行中." else "访客已连接")
+            .setOngoing(true)                // 已有
+            .setDeleteIntent(deletePending)  // ★ 新增：被“划掉”时回调
 
         // 通知按钮
         val exitIntent = Intent(this, ConnectionControlReceiver::class.java)
