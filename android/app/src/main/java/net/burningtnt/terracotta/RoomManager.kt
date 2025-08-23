@@ -9,8 +9,10 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
+import androidx.core.content.ContextCompat
 import net.burningtnt.terracotta.core.LanScanCallback
 import net.burningtnt.terracotta.core.NativeBridge
+import net.burningtnt.terracotta.core.RoomKind
 import net.burningtnt.terracotta.service.ConnectionService
 import net.burningtnt.terracotta.service.GuestConfig
 import net.burningtnt.terracotta.service.HostConfig
@@ -71,40 +73,57 @@ object RoomManager {
             putExtra("invite_code", inviteCode)
         }
 
-        ctx.startService(svc)
+        ContextCompat.startForegroundService(ctx, svc)
     }
 
-    fun joinRoom(ctx: Activity, vpnLauncher: ActivityResultLauncher<Intent>, code: String, onError: (String) -> Unit) {
-        val result = NativeBridge.parseInviteCode(code)
-        if (result == null) {
+    fun joinRoom(
+        ctx: Activity,
+        vpnLauncher: ActivityResultLauncher<Intent>,
+        code: String,
+        onError: (String) -> Unit
+    ) {
+        val result = NativeBridge.parseInviteCode(code) ?: run {
             onError("邀请码无效")
             return
         }
 
-        val networkName = "terracotta-mc-${result.name.lowercase()}"
-        val secret = result.secret.lowercase()
+        // 根据解析出的类型组装 networkName / secret
+        val (networkName, secret) = when (result.roomKind) {
+            RoomKind.TERRACOTTA -> {
+                "terracotta-mc-${result.name.lowercase()}" to result.secret.lowercase()
+            }
+            RoomKind.PCL2CE -> {
+                // 按 code.rs 语义拼接
+                "PCLCELobby${result.name}" to "PCLCEETLOBBY2025${result.secret}"
+            }
+            else -> {
+                onError("邀请码无效")
+                return
+            }
+        }
+
         val forwardPort = getRandomUdpPort()
 
         val intent = VpnService.prepare(ctx)
         if (intent != null) {
-            pendingVpnGuestConfig = GuestConfig(networkName, secret, result.port, forwardPort)
+            pendingVpnGuestConfig = GuestConfig(networkName, secret, result.port, forwardPort, result.roomKind)
             vpnLauncher.launch(intent)
         } else {
-            // 已授权，可以直接启动服务
-            startGuestVpnService(ctx, networkName, secret, result.port, forwardPort)
+            startGuestVpnService(ctx, networkName, secret, result.port, forwardPort, result.roomKind)
         }
     }
 
-    fun startGuestVpnService(ctx: Context, networkName: String, secret: String, port: Int, forwardPort: Int) {
+    fun startGuestVpnService(ctx: Context, networkName: String, secret: String, port: Int, forwardPort: Int, roomKind: RoomKind) {
         val svc = Intent(ctx, ConnectionService::class.java).apply {
             putExtra("role", "guest")
             putExtra("network_name", networkName)
             putExtra("secret", secret)
             putExtra("port", port)
             putExtra("local_port", forwardPort)
+            putExtra("room_kind", roomKind)
         }
 
-        ctx.startService(svc)
+        ContextCompat.startForegroundService(ctx, svc)
     }
 
 

@@ -17,6 +17,6 @@ object NativeBridge {
     external fun setTunFd(instanceName: String, tunFd: ParcelFileDescriptor): Int
     external fun retainNetworkInstance(names: Array<String>): Int
     external fun startEasyTierHost(name: String, key: String, logDir: String): Int
-    external fun startEasyTierGuest(name: String, key: String, localPort: Int, remotePort: Int, logDir: String): Int
+    external fun startEasyTierGuest(name: String, key: String, localPort: Int, remotePort: Int, roomKind: RoomKind, logDir: String): Int
 
 }

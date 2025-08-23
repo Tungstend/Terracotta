@@ -191,7 +191,7 @@ int start_easytier_host(const std::string& network_name, const std::string& secr
 
 // 🔵 访客模式
 int start_easytier_guest(const std::string& network_name, const std::string& secret,
-                         int local_port, int remote_port, const std::string& log_dir) {
+                         int local_port, int remote_port, int room_kind, const std::string& log_dir) {
     bool ipv6_only = false;
     {
         int fd = socket(AF_INET6, SOCK_DGRAM, 0);
@@ -204,6 +204,8 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
             close(fd);
         }
     }
+
+    std::string host_ip = room_kind == 0 ? "10.144.144.1" : "10.114.51.41";
 
     std::ostringstream oss;
     oss << "instance_name = \"Terracotta-Guest\"" << "\n";
@@ -241,13 +243,13 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
     oss << "[[port_forward]]\n";
     oss << "proto = \"tcp\"\n";
     oss << "bind_addr = \"[::]:" << local_port << "\"\n";
-    oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
+    oss << "dst_addr = \"" << host_ip << ":" << remote_port << "\"\n\n";
 
     if (!ipv6_only) {
         oss << "[[port_forward]]\n";
         oss << "proto = \"tcp\"\n";
         oss << "bind_addr = \"0.0.0.0:" << local_port << "\"\n";
-        oss << "dst_addr = \"10.144.144.1:" << remote_port << "\"\n\n";
+        oss << "dst_addr = \"" << host_ip << ":" << remote_port << "\"\n\n";
     }
 
     // 写 relay servers 为 [[peers]]
@@ -263,6 +265,11 @@ int start_easytier_guest(const std::string& network_name, const std::string& sec
             "tcp://et.01130328.xyz:11010",
             "tcp://et.gbc.moe:11011"
     };
+
+    if (room_kind == 1) {
+        oss << "[[peer]]\n";
+        oss << "uri = \"" << "tcp://43.139.42.188:11010" << "\"\n\n";
+    }
 
     for (const auto& uri : peers) {
         oss << "[[peer]]\n";

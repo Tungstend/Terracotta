@@ -103,46 +103,101 @@ std::string generate_invite_code(uint64_t room_id, uint16_t port) {
 
 InviteParseResult parse_invite_code(const std::string& input) {
     InviteParseResult result;
-    std::vector<int> digits;
 
-    for (char c : input) {
-        if (std::isalnum(c)) {
-            int val = lookup_base34(c);
-            if (val == -1) return result;
-            digits.push_back(val);
+    // =========================
+    // 1) 先尝试 Terracotta（保持原逻辑）
+    // =========================
+    {
+        std::vector<int> digits;
+        digits.reserve(25);
+
+        bool terr_ok = true;
+        for (char c : input) {
+            if (std::isalnum(static_cast<unsigned char>(c))) {
+                int val = lookup_base34(c);
+                if (val == -1) { terr_ok = false; break; }
+                digits.push_back(val);
+            }
+        }
+
+        if (terr_ok && digits.size() == 25) {
+            int checksum = 0;
+            for (int i = 0; i < 24; ++i) checksum += digits[i];
+            if ((checksum % 34) == digits[24]) {
+                uint64_t total = 0;
+                for (int i = 24; i >= 0; --i) {
+                    total = total * 34u + static_cast<uint64_t>(digits[i]);
+                }
+
+                result.port    = static_cast<uint16_t>(total & 0xFFFFu);
+                result.room_id = (total >> 16);
+
+                result.name.clear();   result.name.reserve(15);
+                result.secret.clear(); result.secret.reserve(10);
+                for (int i = 0; i < 15; ++i) result.name   += BASE34[digits[i]];
+                for (int i = 15; i < 25; ++i) result.secret += BASE34[digits[i]];
+
+                result.room_kind = RoomKind::TERRACOTTA;
+                result.valid = true;
+                return result;
+            }
         }
     }
 
-    if (digits.size() != 25) return result;
+    // =========================
+    // 2) 再尝试 PCL2CE
+    // =========================
+    auto trim = [](const std::string& s) {
+        size_t i = 0, j = s.size();
+        while (i < j && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+        while (j > i && std::isspace(static_cast<unsigned char>(s[j - 1]))) --j;
+        return s.substr(i, j - i);
+    };
+    auto pcl32_lookup = [](char c) -> int {
+        char u = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (u >= '2' && u <= '9') return u - '2';
+        if (u >= 'A' && u <= 'H') return (u - 'A') + 8;
+        if (u >= 'J' && u <= 'N') return (u - 'J') + 16;
+        if (u >= 'P' && u <= 'Z') return (u - 'P') + 21;
+        return -1;
+    };
 
-    // 校验 checksum
-    int checksum = 0;
-    for (int i = 0; i < 24; ++i) checksum += digits[i];
-    if ((checksum % 34) != digits[24]) return result;
+    std::string s = trim(input);
+    if (!s.empty() && s.size() <= 10) {
+        unsigned long long value = 0;
+        for (char ch : s) {
+            int v = pcl32_lookup(ch);
+            if (v < 0) goto PCL_FAIL;
+            value = value * 32ull + static_cast<unsigned long long>(v);
+        }
 
-    // 构建多精度 value（BigUint）
-    std::vector<uint32_t> value(1, 0); // Little-endian
+        if (value >= 999999999965536ull) goto PCL_FAIL;
 
-    for (int i = 0; i < 25; ++i) {
-        bigint_mul(value, 34);
-        bigint_add(value, digits[i]);
+        {
+            std::string dec = std::to_string(value);
+            unsigned long long portVal = 0;
+
+            if (dec.size() == 14) {
+                portVal = value % 10000ull;
+            } else if (dec.size() == 15) {
+                portVal = value % 100000ull;
+                if (portVal >= 65536ull) goto PCL_FAIL;
+            } else goto PCL_FAIL;
+
+            if (dec.size() < 10) goto PCL_FAIL;
+
+            result.room_id = 0;
+            result.port    = static_cast<uint16_t>(portVal);
+            result.name    = dec.substr(0, 8);
+            result.secret  = dec.substr(8, 2);
+            result.room_kind = RoomKind::PCL2CE;
+            result.valid   = true;
+            return result;
+        }
     }
 
-    // 恢复为 uint64_t
-    uint64_t total = 0;
-    for (int i = 24; i >= 0; --i) {
-        total = total * 34 + digits[i];
-    }
-
-    result.port = static_cast<uint16_t>(total & 0xFFFF);
-    result.room_id = total >> 16;
-
-    // 提取 name & secret
-    result.name.clear();
-    result.secret.clear();
-    for (int i = 0; i < 15; ++i) result.name += BASE34[digits[i]];
-    for (int i = 15; i < 25; ++i) result.secret += BASE34[digits[i]];
-
-    result.valid = true;
+    PCL_FAIL:
+    result.room_kind = RoomKind::INVALID;
+    result.valid = false;
     return result;
 }

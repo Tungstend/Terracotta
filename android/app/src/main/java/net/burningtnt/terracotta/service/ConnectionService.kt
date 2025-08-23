@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import net.burningtnt.terracotta.R
 import net.burningtnt.terracotta.core.NativeBridge
+import net.burningtnt.terracotta.core.RoomKind
 
 class ConnectionService : VpnService() {
 
@@ -26,6 +28,12 @@ class ConnectionService : VpnService() {
         val secret = intent.getStringExtra("secret") ?: "secret"
         val port = intent.getIntExtra("port", 25565)
         val forwardPort = intent.getIntExtra("local_port", 55678)
+        val roomKind: RoomKind = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getSerializableExtra("room_kind", RoomKind::class.java) ?: RoomKind.INVALID
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getSerializableExtra("room_kind") as? RoomKind ?: RoomKind.INVALID
+        }
 
         val builder = Builder()
             .setSession("EasyTier VPN")
@@ -73,7 +81,7 @@ class ConnectionService : VpnService() {
                         }
                     }.start()
                 } else {
-                    i = NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, logDir)
+                    i = NativeBridge.startEasyTierGuest(networkName, secret, forwardPort, port, roomKind, logDir)
                     Thread.sleep(5000)
                     val pfd = ParcelFileDescriptor.dup(tunFd)
                     vpnPFD = pfd

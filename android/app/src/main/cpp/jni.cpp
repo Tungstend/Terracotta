@@ -26,32 +26,84 @@ Java_net_burningtnt_terracotta_core_NativeBridge_generateInviteCode(
 extern "C"
 JNIEXPORT jobject JNICALL
 Java_net_burningtnt_terracotta_core_NativeBridge_parseInviteCode(
-        JNIEnv* env, jobject, jstring code) {
+        JNIEnv* env, jobject /*thiz*/, jstring code) {
+    if (code == nullptr) return nullptr;
+
+    // --- 1) 取入参字符串 ---
     const char* cstr = env->GetStringUTFChars(code, nullptr);
+    if (!cstr) return nullptr; // OOM
     std::string input(cstr);
     env->ReleaseStringUTFChars(code, cstr);
 
+    // --- 2) 解析邀请码（C++ 侧已实现 Terracotta / PCL2CE 兼容，并设置 room_kind）---
     InviteParseResult result = parse_invite_code(input);
     if (!result.valid) return nullptr;
 
-    // 获取 Java 类
-    jclass resultCls = env->FindClass("net/burningtnt/terracotta/core/InviteParseResult");
-    if (resultCls == nullptr) return nullptr;
+    // --- 3) 准备 Java 类与枚举 ---
+    jclass clsResult = env->FindClass("net/burningtnt/terracotta/core/InviteParseResult");
+    if (!clsResult) return nullptr;
 
-    // 构造函数签名: (JILjava/lang/String;Ljava/lang/String;)V
-    jmethodID ctor = env->GetMethodID(resultCls, "<init>", "(JILjava/lang/String;Ljava/lang/String;)V");
-    if (ctor == nullptr) return nullptr;
+    jclass clsRoomKind = env->FindClass("net/burningtnt/terracotta/core/RoomKind");
+    if (!clsRoomKind) return nullptr;
 
-    // 构造 Java 字符串
-    jstring jname = env->NewStringUTF(result.name.c_str());
+    // RoomKind.values()[index]
+    jmethodID midValues = env->GetStaticMethodID(clsRoomKind, "values", "()[Lnet/burningtnt/terracotta/core/RoomKind;");
+    if (!midValues) return nullptr;
+
+    jobjectArray kindsArray = (jobjectArray)env->CallStaticObjectMethod(clsRoomKind, midValues);
+    if (!kindsArray) return nullptr;
+
+    // C++ -> Java enum 索引映射：
+    // 假设你在 C++ 中定义了：
+    // enum class RoomKind { TERRACOTTA = 0, PCL2CE = 1, INVALID = 2 };
+    // 若你的枚举不同，请按需调整 idx 的取值。
+    jint idx = 2; // 默认 INVALID
+    switch (result.room_kind) {
+        case RoomKind::TERRACOTTA: idx = 0; break;
+        case RoomKind::PCL2CE:     idx = 1; break;
+        default:                   idx = 2; break;
+    }
+
+    jobject roomKindObj = env->GetObjectArrayElement(kindsArray, idx);
+    if (!roomKindObj) return nullptr;
+
+    // --- 4) 构造 Kotlin data class（构造参数顺序务必与 InviteParseResult.kt 一致）---
+    // data class InviteParseResult(
+    //   val roomId: Long,
+    //   val port: Int,
+    //   val name: String,
+    //   val secret: String,
+    //   val roomKind: RoomKind
+    // )
+    jmethodID ctor = env->GetMethodID(
+            clsResult,
+            "<init>",
+            "(JILjava/lang/String;Ljava/lang/String;Lnet/burningtnt/terracotta/core/RoomKind;)V");
+    if (!ctor) return nullptr;
+
+    jstring jname   = env->NewStringUTF(result.name.c_str());
     jstring jsecret = env->NewStringUTF(result.secret.c_str());
+    if (!jname || !jsecret) {
+        if (jname)   env->DeleteLocalRef(jname);
+        if (jsecret) env->DeleteLocalRef(jsecret);
+        return nullptr;
+    }
 
-    // 创建 Java 对象
-    jobject jobj = env->NewObject(resultCls, ctor, (jlong)result.room_id, (jint)result.port, jname, jsecret);
+    jobject jobj = env->NewObject(
+            clsResult, ctor,
+            (jlong)result.room_id,
+            (jint) result.port,
+            jname,
+            jsecret,
+            roomKindObj
+    );
 
-    // 删除局部引用（可选优化）
+    // --- 5) 清理局部引用 ---
     env->DeleteLocalRef(jname);
     env->DeleteLocalRef(jsecret);
+    env->DeleteLocalRef(roomKindObj);
+    env->DeleteLocalRef(kindsArray);
+    // clsResult / clsRoomKind 是类引用，JNI 会在栈帧退栈时清理；也可手动 DeleteLocalRef
 
     return jobj;
 }
@@ -181,7 +233,7 @@ Java_net_burningtnt_terracotta_core_NativeBridge_retainNetworkInstance(
 }
 
 extern int start_easytier_host(const std::string&, const std::string&, const std::string&);
-extern int start_easytier_guest(const std::string&, const std::string&, int, int, const std::string&);
+extern int start_easytier_guest(const std::string&, const std::string&, int, int, int, const std::string&);
 
 extern "C"
 JNIEXPORT jint JNICALL
@@ -200,11 +252,14 @@ Java_net_burningtnt_terracotta_core_NativeBridge_startEasyTierHost(
 extern "C"
 JNIEXPORT jint JNICALL
 Java_net_burningtnt_terracotta_core_NativeBridge_startEasyTierGuest(
-        JNIEnv* env, jobject, jstring name, jstring key, jint local_port, jint remote_port, jstring logDir) {
+        JNIEnv* env, jobject, jstring name, jstring key, jint local_port, jint remote_port, jobject roomKind, jstring logDir) {
     const char* cname = env->GetStringUTFChars(name, nullptr);
     const char* ckey = env->GetStringUTFChars(key, nullptr);
     const char* clog = env->GetStringUTFChars(logDir, nullptr);
-    int ret = start_easytier_guest(cname, ckey, local_port, remote_port, clog);
+    jclass clsRoomKind = env->FindClass("net/burningtnt/terracotta/core/RoomKind");
+    jmethodID midOrdinal = env->GetMethodID(clsRoomKind, "ordinal", "()I");
+    jint kindOrdinal = env->CallIntMethod(roomKind, midOrdinal);
+    int ret = start_easytier_guest(cname, ckey, local_port, remote_port, kindOrdinal, clog);
     env->ReleaseStringUTFChars(name, cname);
     env->ReleaseStringUTFChars(key, ckey);
     env->ReleaseStringUTFChars(logDir, clog);

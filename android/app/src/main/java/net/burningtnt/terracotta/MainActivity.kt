@@ -5,7 +5,6 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.widget.AppCompatEditText
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import net.burningtnt.terracotta.RoomManager.startGuestVpnService
 import net.burningtnt.terracotta.RoomManager.startHostVpnService
@@ -28,7 +27,7 @@ class MainActivity : AppCompatActivity() {
     private val guestVpnLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             pendingVpnGuestConfig?.let {
-                startGuestVpnService(this, it.networkName, it.secret, it.port, it.forwardPort)
+                startGuestVpnService(this, it.networkName, it.secret, it.port, it.forwardPort, it.roomKind)
             }
         }
     }
