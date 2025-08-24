@@ -3,14 +3,17 @@ package net.burningtnt.terracotta.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import net.burningtnt.terracotta.R
 import net.burningtnt.terracotta.core.NativeBridge
 import net.burningtnt.terracotta.core.RoomKind
+import androidx.core.net.toUri
 
 class ConnectionService : VpnService() {
 
@@ -82,6 +85,8 @@ class ConnectionService : VpnService() {
         currentInviteCode = intent.getStringExtra("invite_code")
 
         startForeground(NOTIF_ID, createNotification(role, forwardPort, intent.getStringExtra("invite_code")))
+
+        Log.d("InviteCode", intent.getStringExtra("invite_code") ?: "null")
 
         val logDir = filesDir.absolutePath
 
@@ -155,7 +160,7 @@ class ConnectionService : VpnService() {
 
         NativeBridge.stopFakeServer()
 
-        // 1) 先停保活线程与“大厅”
+        // 先停保活线程与“大厅”
         keepAliveThread?.interrupt()
         keepAliveThread = null
         try {
@@ -166,17 +171,18 @@ class ConnectionService : VpnService() {
             NativeBridge.retainNetworkInstance(emptyArray())
         } catch (_: Throwable) {}
 
-        // 2) 关闭 Tun FD（先关交给 Native 的 dup，再关原始 establish 的）
+        // 关闭 Tun FD（先关交给 Native 的 dup，再关原始 establish 的）
         try { tunDupPfd?.close() } catch (_: Throwable) {}
         tunDupPfd = null
 
         try { vpnInterfacePfd?.close() } catch (_: Throwable) {}
         vpnInterfacePfd = null
 
-        // 3) 停止前台通知并结束 Service
-        try {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } catch (_: Throwable) {}
+        // 完全移除通知
+        stopForeground(STOP_FOREGROUND_REMOVE)
+
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(NOTIF_ID)
 
         stopSelf()
     }
@@ -211,18 +217,22 @@ class ConnectionService : VpnService() {
         ).build())
 
         if (role == "host" && inviteCode != null) {
+            val requestCode = SystemClock.uptimeMillis().toInt()
             val copyIntent = Intent(this, ConnectionControlReceiver::class.java)
                 .setAction("ACTION_COPY_INVITE_CODE")
                 .putExtra("invite_code", inviteCode)
-            val copyPending = PendingIntent.getBroadcast(this, 2, copyIntent, PendingIntent.FLAG_IMMUTABLE)
+                .setData("terracotta://copy_invite?sid=$requestCode".toUri())
+            val copyPending = PendingIntent.getBroadcast(this, requestCode, copyIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             builder.addAction(Notification.Action.Builder(
                 null, "复制邀请码", copyPending
             ).build())
         } else {
+            val requestCode = SystemClock.uptimeMillis().toInt()
             val copyIntent = Intent(this, ConnectionControlReceiver::class.java)
                 .setAction("ACTION_COPY_SERVER")
                 .putExtra("server", "127.0.0.1:" + forwardPort)
-            val copyPending = PendingIntent.getBroadcast(this, 3, copyIntent, PendingIntent.FLAG_IMMUTABLE)
+                .setData("terracotta://copy_server?sid=$requestCode".toUri())
+            val copyPending = PendingIntent.getBroadcast(this, requestCode, copyIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             builder.addAction(Notification.Action.Builder(
                 null, "复制服务器地址", copyPending
             ).build())
